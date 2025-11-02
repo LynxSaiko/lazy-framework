@@ -1,4 +1,5 @@
-# bin/framework.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import os, sys, shlex, importlib.util, re, platform, time, random, itertools, threading, shutil, textwrap
 import socket
@@ -54,7 +55,7 @@ class LazyFramework:
         self.metadata.clear()
         self.auto_run_modules()
         valid_extensions = [".py", ".cpp", ".c", ".rb", ".php"]
-
+        all_paths = []
         for folder, prefix in ((MODULE_DIR, "modules"),):
             for p in folder.rglob("*"):
                 if p.is_dir(): continue
@@ -73,7 +74,7 @@ class LazyFramework:
         if not self.modules:
             console.print("No modules found.")
             return
-        console.print(f"Found {len(self.modules)} module(s):")
+        console.print(f"[bold green][*][/bold green] Scanning module tree... {len(self.modules)} module(s)")
         for key, path in sorted(self.modules.items()):
             rel = path.relative_to(BASE_DIR)
             if path.suffix == ".py":
@@ -81,7 +82,7 @@ class LazyFramework:
                     compile(path.read_bytes(), str(path), 'exec')
                     console.print(f"  OK  {rel}")
                 except Exception as e:
-                    console.print(f"  ERR {rel} → {e}")
+                    console.print(f"[bold red][!][/bold red] No modules found during scan {rel}  {e}")
             else:
                 console.print(f"  FILE {rel}")
 
@@ -181,9 +182,9 @@ class LazyFramework:
                 if "default" in meta_opt:
                     inst.options[k] = meta_opt["default"]
             self.loaded_module = inst
-            console.print(Panel(f"Loaded module [bold]{key}[/bold]", style="green"))
+            console.print(Panel(f"[*] Reloading modules from all [*][bold]{key}[/bold]", style="green"))
         except Exception as e:
-            console.print(f"Load error: {e}", style="bold red")
+            console.print(f"[*] Reloading Error modules from all [*] {e}", style="bold red")
 
     def auto_cleanup(self):
         cleaned_count = 0
@@ -196,10 +197,10 @@ class LazyFramework:
             if self._delete_pycache_folder(p, "Manual Cleanup"):
                  # Karena p sudah path ke __pycache__, kita hanya perlu memanggil fungsi
                  cleaned_count += 1
-        if cleaned_count > 0:
-            console.print(f"[bold green]Cleanup Complete![/bold green] Removed {cleaned_count} __pycache__ folder(s).", style="bold green")
-        else:
-            console.print("No __pycache__ folders found to clean.", style="yellow")
+            #if cleaned_count > 0:
+            #console.print(f"[bold green]Cleanup Complete![/bold green] Removed {cleaned_count} __pycache__ folder(s).", style="bold green")
+            #else:
+            #console.print("No __pycache__ folders found to clean.", style="yellow")
 
 
 
@@ -209,10 +210,10 @@ class LazyFramework:
                 for item in pycache_path.iterdir():
                     if item.is_file(): os.unlink(item)
                 os.rmdir(pycache_path)
-                console.print(f"[dim]{action_name}: Removed __pycache__ at[/dim] {pycache_path.relative_to(BASE_DIR)}", style="dim green")
+                #console.print(f"[dim]{action_name}: Removed __pycache__ at[/dim] {pycache_path.relative_to(BASE_DIR)}", style="dim green")
                 return True
             except Exception as e:
-                console.print(f"[dim red]Warning[/dim red]: {action_name} failed: {e}", style="dim")
+                #console.print(f"[dim red]Warning[/dim red]: {action_name} failed: {e}", style="dim")
                 return False
         return False
 
@@ -328,7 +329,9 @@ class LazyFramework:
 
     def cmd_show(self, args):
         if not args:
-            console.print("Usage: show modules|payloads|modules/<category>", style="red")
+            console.print("[bold red][!][/bold red] Argument Failed")
+            console.print("[bold green][✓][/bold green] Valid parameters for the", "show modules|payloads")
+            #console.print("Usage: show modules|payloads|modules/<category>", style="red")
             return
         subcommand = args[0].lower()
         if subcommand == "modules":

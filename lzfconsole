@@ -1,4 +1,5 @@
-# main.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ sys.path.append(str(BASE_DIR / "bin"))
 import os, platform, time
 
 # Import class/fungsi dari lzf_core
-from lzfconsole import LazyFramework # Dari bin/framework.py
+from framework import LazyFramework # Dari bin/framework.py
 from core import SingleLineMarquee, load_banners_from_folder # Dari lzf_core/utils.py
 
 def main():
@@ -19,7 +20,7 @@ def main():
         "[*] Starting the Lazy Framework Console...",
         text_speed=0.20,
         spinner_speed=0.06,
-        reset_delay=1.0, # Jeda 1 detik antar ulangan
+        reset_delay=0.01, # Jeda 1 detik antar ulangan
         max_loops=2      # Berjalan 2 kali lalu berhe>
     )
     anim.start()
