@@ -641,11 +641,11 @@ class LazyFramework:
                     colored_path_segment = f"(\x1b[41m\x1b[97m{path_in_parentheses}\x1b[0m)"
                     prompt = f"lzf {colored_category}{colored_path_segment} > "
                 else:
-                    prompt = "lzf> "
+                    prompt = "lzf > "
                 line = input(prompt)
             except (EOFError, KeyboardInterrupt):
-                console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
-                console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
+                #console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
+                #console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
                 break
             if not line.strip(): continue
             parts = shlex.split(line)
