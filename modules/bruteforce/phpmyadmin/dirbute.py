@@ -138,7 +138,7 @@ class UltraFastTargetScanner:
         
         # Extended phpMyAdmin paths dengan versi terbaru
         # Load common and custom paths from a file
-        all_paths = self.load_paths_from_file("/data/data/com.termux/files/home/S/modules/phpmyadmin/wordlist/phpmyadmin_dir.yaml") # PERBAIKAN: Load .yaml
+        all_paths = self.load_paths_from_file("/root/lazy-framework/modules/bruteforce/phpmyadmin/phpmyadmin_dir.yaml") # PERBAIKAN: Load .yaml
         all_paths.extend(self.custom_paths)
         # Remove duplicates and empty strings, then return
         unique_paths = list(dict.fromkeys([p for p in all_paths if p is not None and str(p).strip()]))

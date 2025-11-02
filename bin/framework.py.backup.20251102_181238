@@ -12,15 +12,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
-from rich.markup import escape  # TAMBAHAN: UNTUK AMANKAN ERROR MARKUP
 
 # --- IMPORT UTILITY DARI lzf_core ---
 from core import Search, get_random_banner, load_banners_from_folder
 # ------------------------------------
 
 console = Console()
-import builtins
-builtins.console = console
 
 BASE_DIR = Path(__file__).parent.parent 
 MODULE_DIR, EXAMPLES_DIR, BANNER_DIR = BASE_DIR / "modules", BASE_DIR / "examples", BASE_DIR / "banner"
@@ -51,6 +48,7 @@ class LazyFramework:
         self.session = {"user": os.getenv("USER", "unknown")}
         self.scan_modules()
         self.auto_cleanup()
+        self.module_commands = {}
 
     def scan_modules(self):
         self.modules.clear()
@@ -74,9 +72,9 @@ class LazyFramework:
      
     def auto_run_modules(self):
         if not self.modules:
-            console.print("No modules found.")
+            console.print("[blue][*][/blue] No modules found.")
             return
-        console.print(f"[bold green][*][/bold green] Scanning module tree... {len(self.modules)} module(s)")
+        console.print(f"[blue][*][/blue] Scanning module tree... {len(self.modules)} module(s)")
         for key, path in sorted(self.modules.items()):
             rel = path.relative_to(BASE_DIR)
             if path.suffix == ".py":
@@ -84,7 +82,7 @@ class LazyFramework:
                     compile(path.read_bytes(), str(path), 'exec')
                     console.print(f"  OK  {rel}")
                 except Exception as e:
-                    console.print(f"[bold red][!][/bold red] No modules found during scan {rel}  {e}")
+                    console.print(f"[blue][*][/blue] No modules found during scan {rel}  {e}")
             else:
                 console.print(f"  FILE {rel}")
 
@@ -183,12 +181,10 @@ class LazyFramework:
             for k, meta_opt in getattr(mod, "OPTIONS", {}).items():
                 if "default" in meta_opt:
                     inst.options[k] = meta_opt["default"]
-            inst.session = {**self.session, "console": console}  # Pass console ke module
             self.loaded_module = inst
-            console.print(Panel(f"[*] Reloading modules from all [*][bold]{key}[/bold]", style="green"))
+            console.print(Panel(f"[blue][*][/blue] Reloading modules from all [blue][*][/blue][bold]{key}[/bold]", style="green"))
         except Exception as e:
-            # PERBAIKAN: escape agar [ ] tidak jadi markup
-            console.print(f"[*] Reloading Error modules from all [*] {escape(str(e))}", style="bold red")
+            console.print(f"[blue][*][/blue] Reloading Error modules from all [blue][*][/blue] {e}", style="bold red")
 
     def auto_cleanup(self):
         cleaned_count = 0
@@ -214,7 +210,7 @@ class LazyFramework:
 
     def cmd_run(self, args):
         if not self.loaded_module:
-            console.print("No module loaded.", style="red")
+            console.print("[blue][*][/blue] No module loaded.", style="red")
             return
         mod = self.loaded_module.module
         meta = getattr(mod, "MODULE_INFO", {})
@@ -223,14 +219,13 @@ class LazyFramework:
             dep_results = self._check_dependencies(dependencies)
             missing_deps = [dep for dep, available in dep_results.items() if not available]
             if missing_deps:
-                console.print(f"[red]Error: Missing dependencies: {', '.join(missing_deps)}[/red]")
-                console.print(f"[yellow]Install with: pip install {' '.join(missing_deps)}[/yellow]")
+                console.print(f"[blue][*][/blue] Error: Missing dependencies: {', '.join(missing_deps)}[/red]")
+                console.print(f"[blue][*][/blue] Install with: pip install {' '.join(missing_deps)}[/yellow]")
                 return
         try:
             self.loaded_module.run(self.session)
         except Exception as e:
-            # PERBAIKAN: escape agar [ ] tidak jadi markup
-            console.print(f"Run error: {escape(str(e))}", style="red")
+            console.print(f"[blue][*][/blue] Run error: {e}", style="red")
 
     def cmd_help(self, args):
         commands = [
@@ -324,8 +319,8 @@ class LazyFramework:
 
     def cmd_show(self, args):
         if not args:
-            console.print("[bold red][!][/bold red] Argument Failed")
-            console.print("[bold green][✓][/bold green] Valid parameters for the", "show modules|payloads")
+            console.print("[blue][*][/blue] Argument Failed")
+            console.print("[blue][*][/blue] Valid parameters for the", "show modules|payloads")
             return
         subcommand = args[0].lower()
         if subcommand == "modules":
@@ -415,7 +410,6 @@ class LazyFramework:
             elif "/android/" in kl: platforms["Android"] = platforms.get("Android", 0) + 1
             elif "/mac" in kl or "/osx" in kl: platforms["macOS"] = platforms.get("macOS", 0) + 1
             else: platforms["Multi"] = platforms.get("Multi", 0) + 1
-            Роман
             if "exploit" in kl: module_types["Exploit"] = module_types.get("Exploit", 0) + 1
             elif "scanner" in kl or "discovery" in kl: module_types["Scanner"] = module_types.get("Scanner", 0) + 1
             elif "auxiliary" in kl: module_types["Auxiliary"] = module_types.get("Auxiliary", 0) + 1
@@ -510,7 +504,7 @@ class LazyFramework:
         else:
             console.print(f"\n[bold yellow]This module has no options.[/bold yellow]")
         console.print("")
-
+    
     def cmd_options(self, args):
         if not self.loaded_module:
             console.print("No module loaded.", style="red")
@@ -597,6 +591,7 @@ class LazyFramework:
             console.print("Changed Directory to: " + os.getcwd())
         except Exception as e: 
             console.print("Error: " + str(e), style="red")
+            
     def cmd_pwd(self, args):
            try:
                console.print(f"[bold cyan]Current Directory:[/bold cyan] [white]{os.getcwd()}[/white]")
@@ -635,11 +630,19 @@ class LazyFramework:
             parts = shlex.split(line)
             cmd, args = parts[0], parts[1:]
             if cmd in ("exit", "quit"): 
-                console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
-                console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
+                #console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
+                #console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
                 break
+            if hasattr(self, "module_commands") and cmd in self.module_commands:
+                self.module_commands[cmd](args)
+                continue
             getattr(self, f"cmd_{cmd}", lambda a: console.print("Unknown command", style="red"))(args)
 
+# ========== Main ==========
+def main():
+    os.system("cls" if platform.system().lower() == "windows" else "clear")
+    load_banners_from_folder()
+    LazyFramework().repl()
 
 if __name__ == "__main__":
-    LazyFramework().repl()
+    main()

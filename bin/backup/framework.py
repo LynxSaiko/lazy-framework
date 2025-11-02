@@ -1,4 +1,5 @@
-# bin/framework.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import os, sys, shlex, importlib.util, re, platform, time, random, itertools, threading, shutil, textwrap
 import socket
@@ -47,14 +48,14 @@ class LazyFramework:
         self.session = {"user": os.getenv("USER", "unknown")}
         self.scan_modules()
         self.auto_cleanup()
-    # --- SEMUA METHOD scan_modules, auto_run_modules, _read_meta, _check_dependencies, dll. LENGKAP ADA DI SINI ---
-    # ... (Semua logika internal di-copy dari lzfx.py) ...
+        self.module_commands = {}
+
     def scan_modules(self):
         self.modules.clear()
         self.metadata.clear()
         self.auto_run_modules()
         valid_extensions = [".py", ".cpp", ".c", ".rb", ".php"]
-
+        all_paths = []
         for folder, prefix in ((MODULE_DIR, "modules"),):
             for p in folder.rglob("*"):
                 if p.is_dir(): continue
@@ -71,9 +72,9 @@ class LazyFramework:
      
     def auto_run_modules(self):
         if not self.modules:
-            console.print("No modules found.")
+            console.print("[blue][*][/blue] No modules found.")
             return
-        console.print(f"Found {len(self.modules)} module(s):")
+        console.print(f"[blue][*][/blue] Scanning module tree... {len(self.modules)} module(s)")
         for key, path in sorted(self.modules.items()):
             rel = path.relative_to(BASE_DIR)
             if path.suffix == ".py":
@@ -81,7 +82,7 @@ class LazyFramework:
                     compile(path.read_bytes(), str(path), 'exec')
                     console.print(f"  OK  {rel}")
                 except Exception as e:
-                    console.print(f"  ERR {rel} → {e}")
+                    console.print(f"[blue][*][/blue] No modules found during scan {rel}  {e}")
             else:
                 console.print(f"  FILE {rel}")
 
@@ -136,7 +137,7 @@ class LazyFramework:
 
     def cmd_use(self, args):
         if not args:
-            console.print("Usage: use <module>", style="bold red")
+            console.print("Usage: use <module>")
             return
         user_key = args[0].strip()
         if user_key.lower().endswith('.py'): user_key = user_key[:-3]
@@ -147,10 +148,10 @@ class LazyFramework:
             frag = user_key.split('/')[-1].lower()
             candidates = [k for k in self.modules.keys() if frag in k.lower() or k.lower().endswith('/' + frag)]
             if candidates:
-                console.print(f"Module '{user_key}' not found. Did you mean:", style="yellow")
+                console.print(f"Module '{user_key}' not found. Did you mean:")
                 for c in candidates[:8]: console.print("  " + c)
             else:
-                console.print(f"Module '{user_key}' not found.", style="red")
+                console.print(f"Module '{user_key}' not found.")
             return
 
         path = self.modules[key]
@@ -181,9 +182,9 @@ class LazyFramework:
                 if "default" in meta_opt:
                     inst.options[k] = meta_opt["default"]
             self.loaded_module = inst
-            console.print(Panel(f"Loaded module [bold]{key}[/bold]", style="green"))
+            console.print(Panel(f"[green][*][/green] Reloading modules from all [bold]{key}[/bold]", style="green"))
         except Exception as e:
-            console.print(f"Load error: {e}", style="bold red")
+            console.print(f"[blue][*][/blue] Reloading Error modules from all [blue][*][/blue] {e}")
 
     def auto_cleanup(self):
         cleaned_count = 0
@@ -194,14 +195,7 @@ class LazyFramework:
                 cleaned_count += 1
         for p in MODULE_DIR.rglob("__pycache__"):
             if self._delete_pycache_folder(p, "Manual Cleanup"):
-                 # Karena p sudah path ke __pycache__, kita hanya perlu memanggil fungsi
                  cleaned_count += 1
-        if cleaned_count > 0:
-            console.print(f"[bold green]Cleanup Complete![/bold green] Removed {cleaned_count} __pycache__ folder(s).", style="bold green")
-        else:
-            console.print("No __pycache__ folders found to clean.", style="yellow")
-
-
 
     def _delete_pycache_folder(self, pycache_path: Path, action_name: str):
         if pycache_path.is_dir():
@@ -209,17 +203,14 @@ class LazyFramework:
                 for item in pycache_path.iterdir():
                     if item.is_file(): os.unlink(item)
                 os.rmdir(pycache_path)
-                console.print(f"[dim]{action_name}: Removed __pycache__ at[/dim] {pycache_path.relative_to(BASE_DIR)}", style="dim green")
                 return True
             except Exception as e:
-                console.print(f"[dim red]Warning[/dim red]: {action_name} failed: {e}", style="dim")
                 return False
         return False
 
-
     def cmd_run(self, args):
         if not self.loaded_module:
-            console.print("No module loaded.", style="red")
+            console.print("[red]No module loaded.[/red]")
             return
         mod = self.loaded_module.module
         meta = getattr(mod, "MODULE_INFO", {})
@@ -228,13 +219,13 @@ class LazyFramework:
             dep_results = self._check_dependencies(dependencies)
             missing_deps = [dep for dep, available in dep_results.items() if not available]
             if missing_deps:
-                console.print(f"[red]Error: Missing dependencies: {', '.join(missing_deps)}[/red]")
-                console.print(f"[yellow]Install with: pip install {' '.join(missing_deps)}[/yellow]")
+                console.print(f"[blue][*][/blue] Error: Missing dependencies: {', '.join(missing_deps)}[/red]")
+                console.print(f"[blue][*][/blue] Install with: pip install {' '.join(missing_deps)}[/yellow]")
                 return
         try:
             self.loaded_module.run(self.session)
         except Exception as e:
-            console.print(f"Run error: {e}", style="red")
+            console.print(f"[blue][*][/blue] Run error: {e}")
 
     def cmd_help(self, args):
         commands = [
@@ -251,17 +242,14 @@ class LazyFramework:
             ("search <keyword>", "Search modules"),
             ("scan", "Rescan modules"),
             ("banner reload|list", "Reload/list banner files"),
-            ("multi <payload>", "Start multi handler for payload"),
-            ("multi sessions", "Show active multi handler sessions"),
-            ("multi stop", "Stop multi handler"),
             ("cd <dir>", "Change working directory"),
             ("ls", "List current directory"),
             ("clear", "Clear terminal screen"),
             ("exit / quit", "Exit the program"),
         ]
         table = Table(title="Core Commands", box=box.SIMPLE_HEAVY)
-        table.add_column("Command", style="bold white")
-        table.add_column("Description", style="white")
+        table.add_column("Command")
+        table.add_column("Description")
         for cmd, desc in commands:
             table.add_row(cmd, desc)
         panel = Panel(table, title="", border_style="white", expand=True)
@@ -275,15 +263,15 @@ class LazyFramework:
             if not (("payload" in parts) or ("payloads" in parts)): continue
             payload_modules[key] = self.metadata.get(key, {})
         if not payload_modules:
-            console.print("No payload modules found under 'modules/'.", style="yellow")
+            console.print("No payload modules found under 'modules/'.")
             return
         table = Table(title="Available Payloads", box=box.SIMPLE_HEAVY, expand=True)
-        table.add_column("Payload", style="bold cyan", width=30)
-        table.add_column("Type", style="yellow", width=15)
-        table.add_column("Platform", style="green", width=12)
-        table.add_column("Arch", style="magenta", width=10)
-        table.add_column("Rank", style="red", width=8)
-        table.add_column("Description", style="white", min_width=20)
+        table.add_column("Payload", width=30)
+        table.add_column("Type"[/yellow], width=15)
+        table.add_column("Platform", width=12)
+        table.add_column("Arch", width=10)
+        table.add_column("Rank"[/red], width=8)
+        table.add_column("Description", min_width=20)
         for key, meta in sorted(payload_modules.items()):
             display_name = key[len("modules/"):]
             kl = key.lower()
@@ -331,7 +319,8 @@ class LazyFramework:
 
     def cmd_show(self, args):
         if not args:
-            console.print("Usage: show modules|payloads|modules/<category>", style="red")
+            console.print("[blue][*][/blue] Argument Failed")
+            console.print("[blue][*][/blue] Valid parameters for the", "show modules|payloads")
             return
         subcommand = args[0].lower()
         if subcommand == "modules":
@@ -342,8 +331,8 @@ class LazyFramework:
             category = subcommand[8:]
             self._show_modules_by_category(category)
         else:
-            console.print(f"Unknown show subcommand: {subcommand}", style="red")
-            console.print("Usage: show modules|payloads|modules/<category>", style="yellow")
+            console.print(f"Unknown show subcommand: {subcommand}"[/red])
+            console.print("Usage: show modules|payloads|modules/<category>"[/yellow])
 
     def _show_all_modules(self):
         terminal_width = shutil.get_terminal_size((80, 20)).columns
@@ -351,9 +340,9 @@ class LazyFramework:
         MAX_RANK_WIDTH = terminal_width // 6
         MAX_DESC_WIDTH = terminal_width // 4
         table = Table(box=box.SIMPLE_HEAVY, expand=True)
-        table.add_column("Module", style="bold white", width=MAX_MODULE_WIDTH, overflow="fold", justify="left")
-        table.add_column("Rank", style="bold yellow", width=MAX_RANK_WIDTH, justify="center")
-        table.add_column("Description", style="white", min_width=10, overflow="fold", justify="left")
+        table.add_column("Module", width=MAX_MODULE_WIDTH, overflow="fold", justify="left")
+        table.add_column("Rank", width=MAX_RANK_WIDTH, justify="center")
+        table.add_column("Description", min_width=10, overflow="fold", justify="left")
         for k, v in sorted(self.metadata.items()):
             meta = self.metadata.get(k, {}) or {}
             if not meta.get("options"):
@@ -383,19 +372,19 @@ class LazyFramework:
             if key.startswith(f"modules/{category}"):
                 category_modules[key] = self.metadata.get(key, {})
         if not category_modules:
-            console.print(f"No modules found in category: {category}", style="yellow")
+            console.print(f"No modules found in category: {category}"[/yellow])
             available_categories = self._get_available_categories()
             if available_categories:
-                console.print("Available categories:", style="yellow")
+                console.print("Available categories:"[/yellow])
                 for cat in sorted(available_categories):
-                    console.print(f"  • {cat}", style="dim")
+                    console.print(f"  • {cat}")
             return
         table = Table(title=f"Modules in {category}", box=box.SIMPLE_HEAVY, expand=True)
-        table.add_column("Module", style="bold cyan", width=35)
-        table.add_column("Type", style="yellow", width=15)
-        table.add_column("Platform", style="green", width=12)
-        table.add_column("Rank", style="red", width=8)
-        table.add_column("Description", style="white", min_width=25)
+        table.add_column("Module", width=35)
+        table.add_column("Type"[/yellow], width=15)
+        table.add_column("Platform", width=12)
+        table.add_column("Rank"[/red], width=8)
+        table.add_column("Description", min_width=25)
         for key, meta in sorted(category_modules.items()):
             display_name = key[len("modules/"):]
             kl = key.lower()
@@ -447,18 +436,16 @@ class LazyFramework:
 
     def cmd_info(self, args):
         if not self.loaded_module:
-            console.print("No module loaded. Use 'use <module>' first.", style="red")
+            console.print("No module loaded. Use 'use <module>' first."[/red])
             return
-        full_module_path = self.loaded_module.name # Contoh: modules/exploit/windows/smb/ms17_010
+        full_module_path = self.loaded_module.name
         path_parts = full_module_path.split('/')
         mod_type = "UNKNOWN"
         if len(path_parts) > 1:
-            # Ambil elemen ke-1 (indeks 1) setelah 'modules' (indeks 0)
             mod_type = path_parts[1].upper()
         mod = self.loaded_module.module
         meta = getattr(mod, "MODULE_INFO", {}) or {}
         name = meta.get("name", self.loaded_module.name.split('/')[-1])
-        mod_type = self._get_module_type_from_path(mod.__file__).upper()
         authors = meta.get("author", meta.get("authors", "Unknown"))
         description = meta.get("description", "No description provided.")
         license_ = meta.get("license", "Unknown")
@@ -481,9 +468,9 @@ class LazyFramework:
         if dependencies:
             console.print(f"\n[bold white]Dependencies:[/bold white]")
             deps_table = Table(show_header=True, header_style="bold white", box=box.SIMPLE, show_edge=False)
-            deps_table.add_column("Package", style="white", width=25)
-            deps_table.add_column("Status", style="white", width=15)
-            deps_table.add_column("Action", style="white", width=30)
+            deps_table.add_column("Package", width=25)
+            deps_table.add_column("Status", width=15)
+            deps_table.add_column("Action", width=30)
             for dep in dependencies:
                 status = dep_status.get(dep, False)
                 status_text = "[green]Available[/green]" if status else "[red]Missing[/red]"
@@ -500,10 +487,10 @@ class LazyFramework:
                 console.print(f"\n[bold yellow]Module options ({self.loaded_module.name}):[/bold yellow]")
                 console.print("")
                 table = Table(show_header=True, header_style="bold yellow", box=box.SIMPLE, show_edge=False)
-                table.add_column("Name", style="white", width=25, no_wrap=True)
-                table.add_column("Current", style="cyan", width=25, no_wrap=True)
-                table.add_column("Required", style="white", width=25, justify="center")
-                table.add_column("Description", style="white", width=30)
+                table.add_column("Name", width=25, no_wrap=True)
+                table.add_column("Current", width=25, no_wrap=True)
+                table.add_column("Required", width=25, justify="center")
+                table.add_column("Description", width=30)
                 for name, info in opts.items():
                     current = str(info.get('value', '')).strip()
                     if not current: current = info.get('default', '')
@@ -517,11 +504,10 @@ class LazyFramework:
         else:
             console.print(f"\n[bold yellow]This module has no options.[/bold yellow]")
         console.print("")
-
     
     def cmd_options(self, args):
         if not self.loaded_module:
-            console.print("No module loaded.", style="red")
+            console.print("No module loaded."[/red])
             return
         if hasattr(self.loaded_module.module, "OPTIONS"):
             table = Table(show_header=True, header_style="bold white", box=box.SIMPLE)
@@ -537,51 +523,46 @@ class LazyFramework:
             panel = Panel(table, title="Module Options", border_style="white", expand=False)
             console.print(panel)
         else:
-            console.print(f"Module '{self.loaded_module.name}' has no configurable options.", style="yellow")
+            console.print(f"Module '{self.loaded_module.name}' has no configurable options."[/yellow])
 
     def cmd_set(self, args):
         if not self.loaded_module: 
-            console.print("No module loaded.", style="red")
+            console.print("No module loaded."[/red])
             return
         if len(args) < 2: 
-            console.print("Usage: set <option> <value>", style="red")
+            console.print("Usage: set <option> <value>"[/red])
             return
         opt, val = args[0], " ".join(args[1:])
         try:
             self.loaded_module.set_option(opt, val)
-            console.print(f"{opt} => {val}", style="green")
+            console.print([green]f"{opt} => {val}"[/green])
         except Exception as e:
-            console.print(str(e), style="red")
+            console.print(str(e)[/red])
 
     def cmd_back(self, args):
         if self.loaded_module: 
-            console.print(f"Unloaded {self.loaded_module.name}", style="yellow")
+            console.print(f"Unloaded {self.loaded_module.name}"[/yellow])
             self.loaded_module = None
         else: 
-            console.print("No module loaded.", style="red")
+            console.print("No module loaded."[/red])
 
     def cmd_scan(self, args):
         self.scan_modules()
-        console.print(f"Scanned {len(self.modules)} modules.", style="green")
+        console.print(f"[green]Scanned {len(self.modules)} modules.[/green]")
 
     def cmd_search(self, args):
         if not args:
-            return console.print("Usage: search <keyword>", style="red")
+            return console.print("Usage: search <keyword>"[/red])
         keyword = " ".join(args).strip().lower()
         results = []
         for key, meta in self.metadata.items():
-            # 1. Cek apakah keyword ada di key (path) atau deskripsi
             if keyword in key.lower() or keyword in meta.get("description","").lower():
-                
-                # 2. Cek apakah module memiliki OPTIONS (metadata["options"] tidak kosong)
                 if meta.get("options"):
                     results.append((key, meta.get("description", "(no description)")))
-        # MENGGUNAKAN SEARCH DARI lzf_core
-        #results = Search(self.modules, self.metadata).search_modules(keyword) 
         if not results:
-            return console.print(f"No modules matching '{keyword}'", style="yellow")
+            return console.print(f"No modules matching '{keyword}'"[/yellow])
         table = Table(box=box.SIMPLE)
-        table.add_column("Module", style="bold red", overflow="fold")
+        table.add_column("Module", overflow="fold")
         table.add_column("Description")
         for key, desc in sorted(results):
             display_key = key.replace("modules/", "", 1)
@@ -591,9 +572,8 @@ class LazyFramework:
 
     def cmd_banner(self, args):
         if not args: 
-            return console.print("Usage: banner reload|list", style="red")
+            return console.print("Usage: banner reload|list"[/red])
         if args[0] == "reload": 
-            # MENGGUNAKAN FUNGSI DARI lzf_core
             load_banners_from_folder()
             console.print(get_random_banner())
         elif args[0] == "list":
@@ -610,35 +590,31 @@ class LazyFramework:
             os.chdir(args[0])
             console.print("Changed Directory to: " + os.getcwd())
         except Exception as e: 
-            console.print("Error: " + str(e), style="red")
+            console.print("Error: " + str(e)[/red])
+            
     def cmd_pwd(self, args):
            try:
-               """Print current working directory"""
                console.print(f"[bold cyan]Current Directory:[/bold cyan] [white]{os.getcwd()}[/white]")
            except Exception as e:
-               console.print(f"[red]Error:[/red] {e}", style="red")
+               console.print(f"[red]Error:[/red] {e}"[/red])
 
     def cmd_ls(self, args):
         try:
             for f in os.listdir(): 
                 console.print(f)
         except Exception as e: 
-            console.print("Error: " + str(e), style="red")
+            console.print("Error: " + str(e)[/red])
 
     def cmd_clear(self, args): 
         os.system("cls" if platform.system().lower() == "windows" else "clear")
 
     def repl(self):
-        console.print("Lazy Framework - type 'help' for commands", style="bold cyan")
-        # MENGGUNAKAN FUNGSI DARI lzf_core
+        console.print("Lazy Framework - type 'help' for commands")
         console.print(get_random_banner()) 
         while True:
             try:
-                # Modifikasi prompt ringkas
                 if self.loaded_module:
                     full_path_without_prefix = self.loaded_module.name.replace("modules/", "", 1)
-                    
-                    # Pisahkan kategori (misalnya 'exploit') dari sisa path (misalnya 'windows/vnc/winvnc_http_get')
                     path_components = full_path_without_prefix.split('/')
                     category = path_components[0]
                     path_in_parentheses = '/'.join(path_components[1:])
@@ -646,17 +622,27 @@ class LazyFramework:
                     colored_path_segment = f"(\x1b[41m\x1b[97m{path_in_parentheses}\x1b[0m)"
                     prompt = f"lzf {colored_category}{colored_path_segment} > "
                 else:
-                    prompt = "lzf> "
+                    prompt = "lzf > "
                 line = input(prompt)
             except (EOFError, KeyboardInterrupt):
-                console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
-                console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
                 break
             if not line.strip(): continue
             parts = shlex.split(line)
             cmd, args = parts[0], parts[1:]
             if cmd in ("exit", "quit"): 
-                console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
-                console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
+                #console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
+                #console.print("[bold cyan]Thank you for using Lazy Framework. We hope to see you again soon![/bold cyan]")
                 break
-            getattr(self, f"cmd_{cmd}", lambda a: console.print("Unknown command", style="red"))(args)
+            if hasattr(self, "module_commands") and cmd in self.module_commands:
+                self.module_commands[cmd](args)
+                continue
+            getattr(self, f"cmd_{cmd}", lambda a: console.print("Unknown command"[/red]))(args)
+
+# ========== Main ==========
+def main():
+    os.system("cls" if platform.system().lower() == "windows" else "clear")
+    load_banners_from_folder()
+    LazyFramework().repl()
+
+if __name__ == "__main__":
+    main()
