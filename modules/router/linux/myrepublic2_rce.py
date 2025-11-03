@@ -95,36 +95,44 @@ class MyRepublicExploit:
             'patched': True,
             'brand': 'Unknown'
         }
-
         try:
-            r = self.session.get(f"{self.base_url}/", timeout=10, allow_redirects=True)
+            r = self.session.get(f"{self.base_url}/", timeout=10)
             html = r.text.lower()
-            headers = {k.lower(): v.lower() for k, v in r.headers.items()}
-            title = re.search(r'<title>([^<]+)</title>', r.text, re.I)
-            title_text = title.group(1).lower() if title else ""
-
-            matches = [s for s in PUBLIC_SIGNATURES if s in html or s in title_text]
-            if any(x in headers.get('server', '') for x in ['boa', 'rompager']):
-                matches.append('embedded_web')
-
+            matches = [s for s in PUBLIC_SIGNATURES if s in html]
             if matches:
                 device_info['is_myrepublic'] = True
-                device_info['brand'] = 'MyRepublic (Suspected)'
-                console.print(f"[green]Possible MyRepublic router (signatures: {', '.join(matches)})[/green]")
-
-                model_match = re.search(r'(f6\d{2}|hg\d{4}|zxhn)', html)
-                if model_match:
-                    device_info['model'] = model_match.group(0).upper()
-
-            backdoors = self.test_backdoors()
-            device_info['vulnerable'] = len(backdoors) > 0 or device_info['is_myrepublic']
+                device_info['brand'] = 'MyRepublic'
+                console.print(f"[green]MyRepublic detected: {', '.join(matches)}[/green]")
+            # 2. LOGIN DULU UNTUK BACA MODEL
+            if self.try_login():
+                console.print("[yellow][*] Logged in → scanning internal pages...[/yellow]")
+                for page in ["/menu.html", "/status.html", "/deviceinfo", "/system_status"]:
+                    try:
+                       r_page = self.session.get(f"{self.base_url}{page}", timeout=8)
+                       if r_page.status_code == 200:
+                          page_html = r_page.text
+                          model_match = re.search(r'(f6\d{2}|hg\d{4}[a-z]?|zxhn\s*h\d+)', page_html, re.I)
+                          if model_match:
+                             device_info['model'] = model_match.group(0).upper()
+                             console.print(f"[bold green]MODEL DETECTED: {device_info['model']} (from {page})[/bold green]")
+                             break
+                          if "device model" in page_html.lower():
+                             model_line = re.search(r'device model[^<]*<[^>]*>([^<]+)', page_html, re.I)
+                          if model_line:
+                             device_info['model'] = model_line.group(1).strip().upper()
+                             console.print(f"[bold green]MODEL: {device_info['model']} (from table)[/bold green]")
+                             break
+                   except: continue
+            else:
+                console.print("[yellow]Login failed → model scan skipped[/yellow]")
+            device_info['vulnerable'] = device_info['is_myrepublic']
             device_info['patched'] = not device_info['vulnerable']
 
             return device_info
+     except Exception as e:
+         console.print(f"[red]Detection error: {e}[/red]")
+         return device_info
 
-        except Exception as e:
-            console.print(f"[red]Detection error: {str(e)}[/red]")
-            return device_info
 
     # ===================================================================
     # CEK BACKDOOR PUBLIK
