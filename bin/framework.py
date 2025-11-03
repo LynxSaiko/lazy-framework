@@ -415,7 +415,6 @@ class LazyFramework:
             elif "/android/" in kl: platforms["Android"] = platforms.get("Android", 0) + 1
             elif "/mac" in kl or "/osx" in kl: platforms["macOS"] = platforms.get("macOS", 0) + 1
             else: platforms["Multi"] = platforms.get("Multi", 0) + 1
-            Роман
             if "exploit" in kl: module_types["Exploit"] = module_types.get("Exploit", 0) + 1
             elif "scanner" in kl or "discovery" in kl: module_types["Scanner"] = module_types.get("Scanner", 0) + 1
             elif "auxiliary" in kl: module_types["Auxiliary"] = module_types.get("Auxiliary", 0) + 1
