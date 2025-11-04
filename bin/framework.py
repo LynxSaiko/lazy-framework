@@ -183,7 +183,8 @@ class LazyFramework:
             for k, meta_opt in getattr(mod, "OPTIONS", {}).items():
                 if "default" in meta_opt:
                     inst.options[k] = meta_opt["default"]
-            inst.session = {**self.session, "console": console}  # Pass console ke module
+            #inst.session = {**self.session, "console": console}  # Pass console ke module
+            #inst.session = {**getattr(self, "session", {}), "console": console}
             self.loaded_module = inst
             console.print(Panel(f"[*] Reloading modules from all [*][bold]{key}[/bold]", style="green"))
         except Exception as e:
@@ -217,6 +218,8 @@ class LazyFramework:
             console.print("No module loaded.", style="red")
             return
         mod = self.loaded_module.module
+
+    # Session lengkap dengan console
         meta = getattr(mod, "MODULE_INFO", {})
         dependencies = meta.get("dependencies", [])
         if dependencies:

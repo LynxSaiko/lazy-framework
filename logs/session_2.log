@@ -1,0 +1,4 @@
+[03:05:20] Session opened
+[03:05:21] > python3 -c 'import pty; pty.spawn("/bin/bash")' 2>/dev/null || python -c 'import pty; pty.spawn("/bin/sh")'
+[03:05:21] > whoami && pwd
+[03:05:55] Session closed

